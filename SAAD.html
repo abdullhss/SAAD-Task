@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Critical Path Analysis</title>
+    <script src="https://unpkg.com/cytoscape/dist/cytoscape.min.js"></script>
+    <script src="https://unpkg.com/dagre/dist/dagre.min.js"></script>
+    <script src="https://unpkg.com/cytoscape-dagre/cytoscape-dagre.js"></script>
+    <style>
+        #cy {
+            width: 100%;
+            height: 600px;
+            border: 1px solid black;
+        }
+        .input-section {
+            margin-bottom: 20px;
+        }
+        .input-section label {
+            display: inline-block;
+            width: 300px;
+        }
+        .input-section input, .input-section select {
+            margin-right: 10px;
+        }
+        .input-section button {
+            margin-top: 10px;
+        }
+        .input-section ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        .input-section ul li {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <h2>Critical Path Analysis</h2>
+
+    <div class="input-section">
+        <h3>Add Tasks</h3>
+        <label for="taskName">Task Name:</label>
+        <input type="text" id="taskName">
+        <label for="taskDuration">Duration:</label>
+        <input type="number" id="taskDuration">
+        <button onclick="addTask()">Add Task</button>
+        <ul id="taskList"></ul>
+    </div>
+    <div class="input-section">
+        <h3>Add Dependencies</h3>
+        <label for="predecessorSelect">Predecessor:</label>
+        <select id="predecessorSelect"></select>
+        <label for="successorSelect">Successor:</label>
+        <select id="successorSelect"></select>
+        <button onclick="addDependency()">Add Dependency</button>
+        <ul id="dependencyList"></ul>
+    </div>
+    <button onclick="handleSubmit()">Submit</button>
+
+    <div id="cy"></div>
+
+    <script>
+        let tasks = [];
+        let durations = {};
+        let dependencies = [];
+
+        function updateTaskSelectors() {
+            let predecessorSelect = document.getElementById('predecessorSelect');
+            let successorSelect = document.getElementById('successorSelect');
+
+            predecessorSelect.innerHTML = '';
+            successorSelect.innerHTML = '';
+
+            tasks.forEach(task => {
+                let option1 = document.createElement('option');
+                option1.value = task;
+                option1.text = task;
+                predecessorSelect.add(option1);
+
+                let option2 = document.createElement('option');
+                option2.value = task;
+                option2.text = task;
+                successorSelect.add(option2.cloneNode(true));
+            });
+        }
+
+        function addTask() {
+            let taskName = document.getElementById('taskName').value.trim();
+            let taskDuration = parseInt(document.getElementById('taskDuration').value);
+
+            if (taskName === '' || isNaN(taskDuration)) {
+                alert('Please enter a valid task name and duration.');
+                return;
+            }
+
+            if (tasks.includes(taskName)) {
+                alert('Task already exists.');
+                return;
+            }
+
+            tasks.push(taskName);
+            durations[taskName] = taskDuration;
+
+            let taskList = document.getElementById('taskList');
+            let listItem = document.createElement('li');
+            listItem.textContent = `Task: ${taskName}, Duration: ${taskDuration}`;
+            taskList.appendChild(listItem);
+
+            updateTaskSelectors();
+
+            document.getElementById('taskName').value = '';
+            document.getElementById('taskDuration').value = '';
+        }
+
+        function addDependency() {
+            let predecessor = document.getElementById('predecessorSelect').value;
+            let successor = document.getElementById('successorSelect').value;
+
+            if (predecessor === '' || successor === '') {
+                alert('Please select both predecessor and successor.');
+                return;
+            }
+
+            if (predecessor === successor) {
+                alert('Predecessor and successor cannot be the same.');
+                return;
+            }
+
+            for (let dep of dependencies) {
+                if (dep[0] === predecessor && dep[1] === successor) {
+                    alert('This dependency already exists.');
+                    return;
+                }
+            }
+
+            dependencies.push([predecessor, successor]);
+
+            let dependencyList = document.getElementById('dependencyList');
+            let listItem = document.createElement('li');
+            listItem.textContent = `${predecessor} -> ${successor}`;
+            dependencyList.appendChild(listItem);
+        }
+
+        function topologicalSort(graph, indegree) {
+            let topoOrder = [];
+            let zeroIndegree = [];
+
+            for (let node in graph) {
+                if (indegree[node] === 0) {
+                    zeroIndegree.push(node);
+                }
+            }
+
+            while (zeroIndegree.length > 0) {
+                let current = zeroIndegree.pop();
+                topoOrder.push(current);
+
+                for (let neighbor of graph[current]) {
+                    indegree[neighbor] -= 1;
+                    if (indegree[neighbor] === 0) {
+                        zeroIndegree.push(neighbor);
+                    }
+                }
+            }
+
+            return topoOrder;
+        }
+
+        function findCriticalPath(tasks, durations, dependencies) {
+            let graph = {};
+            let indegree = {};
+
+            tasks.forEach(task => {
+                graph[task] = [];
+                indegree[task] = 0;
+            });
+
+            dependencies.forEach(([predecessor, successor]) => {
+                graph[predecessor].push(successor);
+                indegree[successor] += 1;
+            });
+
+            let topoOrder = topologicalSort(graph, indegree);
+
+            if (topoOrder.length !== tasks.length) {
+                alert('Error: The graph has cycles or disconnected components.');
+                return null;
+            }
+
+            let earliestStart = {};
+            let earliestFinish = {};
+            tasks.forEach(task => {
+                earliestStart[task] = 0;
+                earliestFinish[task] = durations[task];
+            });
+
+            topoOrder.forEach(task => {
+                graph[task].forEach(neighbor => {
+                    earliestStart[neighbor] = Math.max(earliestStart[neighbor], earliestFinish[task]);
+                    earliestFinish[neighbor] = earliestStart[neighbor] + durations[neighbor];
+                });
+            });
+
+            let maxFinishTime = Math.max(...Object.values(earliestFinish));
+            let criticalPath = [];
+
+            topoOrder.reverse().forEach(task => {
+                if (earliestFinish[task] === maxFinishTime) {
+                    criticalPath.push(task);
+                    maxFinishTime -= durations[task];
+                }
+            });
+
+            criticalPath.reverse();
+            let criticalPathEdges = [];
+            for (let i = 0; i < criticalPath.length - 1; i++) {
+                criticalPathEdges.push([criticalPath[i], criticalPath[i + 1]]);
+            }
+
+            return { criticalPath, criticalPathEdges, criticalPathDuration: Math.max(...Object.values(earliestFinish)), graph };
+        }
+
+        function drawActivityNetwork(tasks, durations, dependencies, criticalPathEdges) {
+            let cy = cytoscape({
+                container: document.getElementById('cy'),
+                elements: [],
+                style: [
+                    {
+                        selector: 'node',
+                        style: {
+                            'label': 'data(label)',
+                            'background-color': 'lightblue',
+                            'width': 100,
+                            'height': 100,
+                            'text-valign': 'center',
+                            'text-halign': 'center',
+                        }
+                    },
+                    {
+                        selector: 'edge',
+                        style: {
+                            'label': 'data(label)',
+                            'width': 2,
+                            'line-color': 'black',
+                            'target-arrow-color': 'black',
+                            'target-arrow-shape': 'triangle',
+                            'curve-style': 'bezier',
+                            'text-margin-y': -10,
+                        }
+                    },
+                    {
+                        selector: '.critical',
+                        style: {
+                            'line-color': 'red',
+                            'width': 4,
+                        }
+                    }
+                ],
+                layout: {
+                    name: 'dagre',
+                    rankDir: 'LR',
+                    nodeSep: 50,
+                    edgeSep: 10
+                }
+            });
+
+            tasks.forEach(task => {
+                cy.add({
+                    group: 'nodes',
+                    data: { id: task, label: `${task}\n${durations[task]}` }
+                });
+            });
+
+            dependencies.forEach(dep => {
+                cy.add({
+                    group: 'edges',
+                    data: { source: dep[0], target: dep[1], label: `${dep[0]} -> ${dep[1]}` }
+                });
+            });
+
+            criticalPathEdges.forEach(([source, target]) => {
+
+                let edge = cy.edges(`[source = "${source}"][target = "${target}"]`);
+                edge.addClass('critical');
+            });
+
+            cy.layout({ name: 'dagre' }).run();
+        }
+
+        function handleSubmit() {
+            if (tasks.length === 0) {
+                alert('Please add at least one task.');
+                return;
+            }
+
+            let result = findCriticalPath(tasks, durations, dependencies);
+            if (result === null) return;
+
+            let { criticalPath, criticalPathEdges, criticalPathDuration } = result;
+            console.log('Critical Path:', criticalPath.join(' -> '));
+            console.log('Critical Path Duration:', criticalPathDuration);
+            alert('Critical Path: ' + criticalPath.join(' -> ') + '\nDuration: ' + criticalPathDuration);
+
+            drawActivityNetwork(tasks, durations, dependencies, criticalPathEdges);
+        }
+    </script>
+</body>
+</html>
+    
